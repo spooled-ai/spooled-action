@@ -1,0 +1,242 @@
+name: 'Spooled — Behavioral CI for AI Agents'
+description: 'Catch behavioral drift in AI agents on every pull request. Fingerprint, diff, and gate against golden baselines.'
+branding:
+  icon: 'shield'
+  color: 'purple'
+
+inputs:
+  license-key:
+    description: 'Spooled Pro license key. Without this, the action runs in community mode (minimal PR comments, no merge blocking, no annotations).'
+    required: false
+    default: ''
+  baselines:
+    description: 'Path to baseline directory or file'
+    required: true
+    default: '.github/baselines'
+  test-command:
+    description: 'Command to generate traces (leave empty if traces already exist)'
+    required: false
+    default: ''
+  trace-dir:
+    description: 'Directory containing trace JSONL files'
+    required: false
+    default: '.spooled/traces'
+  policy:
+    description: 'Path to policy YAML file'
+    required: false
+    default: ''
+  blocking:
+    description: 'Fail the check on policy violations'
+    required: false
+    default: 'true'
+  setup-python:
+    description: 'Set up Python (disable if already configured)'
+    required: false
+    default: 'true'
+  python-version:
+    description: 'Python version to install'
+    required: false
+    default: '3.10'
+  extra-deps:
+    description: 'Path to additional requirements.txt to install'
+    required: false
+    default: ''
+  post-comment:
+    description: 'Post or update a PR comment with the report'
+    required: false
+    default: 'true'
+  push-report:
+    description: 'Push CI report to Spooled backend'
+    required: false
+    default: 'false'
+  spooled-version:
+    description: 'spooled-ai version to install from PyPI (e.g. "0.3.0"). Leave empty to install latest.'
+    required: false
+    default: ''
+
+outputs:
+  result:
+    description: 'PASS or FAIL'
+    value: ${{ steps.compare.outputs.result }}
+  total:
+    description: 'Total traces analyzed'
+    value: ${{ steps.compare.outputs.total }}
+  passed:
+    description: 'Traces matching baseline'
+    value: ${{ steps.compare.outputs.passed }}
+  new-behavior:
+    description: 'Traces with new fingerprints'
+    value: ${{ steps.compare.outputs.new_behavior }}
+  policy-failures:
+    description: 'Traces with policy violations'
+    value: ${{ steps.compare.outputs.policy_failures }}
+  report-path:
+    description: 'Path to generated report.md'
+    value: ${{ steps.compare.outputs.report_path }}
+  summary-path:
+    description: 'Path to generated summary.json'
+    value: ${{ steps.compare.outputs.summary_path }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      if: inputs.setup-python == 'true'
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install Spooled
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.spooled-version }}" ]; then
+          pip install "spooled-ai==${{ inputs.spooled-version }}"
+        else
+          pip install spooled-ai
+        fi
+        if [ -n "${{ inputs.extra-deps }}" ] && [ -f "${{ inputs.extra-deps }}" ]; then
+          pip install -r "${{ inputs.extra-deps }}"
+        fi
+
+    - name: Generate traces
+      if: inputs.test-command != ''
+      shell: bash
+      env:
+        SPOOLED_LOCAL_STORAGE: 'true'
+      run: ${{ inputs.test-command }}
+
+    - name: Compare traces against baselines
+      id: compare
+      shell: bash
+      env:
+        SPOOLED_LOCAL_STORAGE: 'true'
+        SPOOLED_BACKEND_URL: ''
+      run: |
+        # License key gating: community mode without a key
+        if [ -z "${{ inputs.license-key }}" ]; then
+          echo "::notice::Running in community mode. Upgrade to Pro for PR comments and merge blocking: https://spooled.ai/#pricing"
+          BLOCKING_FLAG="--no-blocking"
+          ANNOTATIONS_FLAG=""
+          COMMUNITY_MODE="true"
+        else
+          BLOCKING_FLAG="--enable-blocking"
+          if [ "${{ inputs.blocking }}" != "true" ]; then
+            BLOCKING_FLAG="--no-blocking"
+          fi
+          ANNOTATIONS_FLAG="--github-annotations"
+          COMMUNITY_MODE="false"
+        fi
+
+        POLICY_FLAG=""
+        if [ -n "${{ inputs.policy }}" ] && [ -f "${{ inputs.policy }}" ]; then
+          POLICY_FLAG="--policy ${{ inputs.policy }}"
+        fi
+
+        PUSH_FLAG=""
+        if [ "${{ inputs.push-report }}" == "true" ]; then
+          PUSH_FLAG="--push"
+        fi
+
+        set +e
+        spooled ci batch-compare \
+          --trace-dir "${{ inputs.trace-dir }}" \
+          --baseline "${{ inputs.baselines }}" \
+          --out ci-report \
+          $ANNOTATIONS_FLAG \
+          $BLOCKING_FLAG \
+          $POLICY_FLAG \
+          $PUSH_FLAG
+        CLI_EXIT=$?
+        set -e
+
+        # Parse summary.json to set outputs
+        if [ -f ci-report/summary.json ]; then
+          python3 -c "
+        import json, os
+        with open('ci-report/summary.json') as f:
+            s = json.load(f)
+        out = os.environ.get('GITHUB_OUTPUT', '')
+        if out:
+            with open(out, 'a') as f:
+                f.write(f\"result={s['overall_result']}\n\")
+                f.write(f\"total={s['total_traces']}\n\")
+                f.write(f\"passed={s['passed']}\n\")
+                f.write(f\"new_behavior={s['new_behavior']}\n\")
+                f.write(f\"policy_failures={s['policy_failures']}\n\")
+                f.write(f\"report_path=ci-report/report.md\n\")
+                f.write(f\"summary_path=ci-report/summary.json\n\")
+        "
+        fi
+
+        exit $CLI_EXIT
+
+    - name: Job summary
+      if: always() && hashFiles('ci-report/report.md') != ''
+      shell: bash
+      run: cat ci-report/report.md >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Post community PR comment
+      if: always() && inputs.license-key == '' && inputs.post-comment == 'true' && github.event_name == 'pull_request' && hashFiles('ci-report/summary.json') != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+        RUN_ID: ${{ github.run_id }}
+        SERVER_URL: ${{ github.server_url }}
+      run: |
+        set -euo pipefail
+
+        MARKER="<!-- spooled-pr-comment -->"
+
+        # Parse summary.json for counts
+        TOTAL=$(python3 -c "import json; s=json.load(open('ci-report/summary.json')); print(s['total_traces'])")
+        NEW_BEHAVIOR=$(python3 -c "import json; s=json.load(open('ci-report/summary.json')); print(s['new_behavior'])")
+        POLICY_FAILURES=$(python3 -c "import json; s=json.load(open('ci-report/summary.json')); print(s['policy_failures'])")
+
+        # Build changes-detected count (new behavior + policy failures)
+        CHANGES=$((NEW_BEHAVIOR + POLICY_FAILURES))
+
+        # Link to the artifact (run page, artifacts section)
+        ARTIFACT_URL="${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}"
+
+        BODY="${MARKER}
+**Spooled:** ${TOTAL} agents checked | ${CHANGES} behavioral change(s) detected | [View full report](${ARTIFACT_URL})
+
+_Upgrade to Pro for detailed diffs and merge blocking: [spooled.ai/#pricing](https://spooled.ai/#pricing)_"
+
+        # Find existing comment with our marker
+        EXISTING_COMMENT_ID=$(gh api \
+          "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+          --paginate \
+          --jq ".[] | select(.body | contains(\"${MARKER}\")) | .id" \
+          2>/dev/null | head -1 || true)
+
+        if [ -n "$EXISTING_COMMENT_ID" ]; then
+          echo "Updating existing community comment $EXISTING_COMMENT_ID"
+          gh api \
+            "repos/${REPO}/issues/comments/${EXISTING_COMMENT_ID}" \
+            --method PATCH \
+            --field body="$BODY"
+        else
+          echo "Creating new community PR comment"
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$BODY"
+        fi
+
+    - name: Post PR comment
+      if: always() && inputs.license-key != '' && inputs.post-comment == 'true' && github.event_name == 'pull_request' && hashFiles('ci-report/report.md') != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+      run: bash "${{ github.action_path }}/scripts/post-pr-comment.sh"
+
+    - name: Upload reports
+      if: always() && hashFiles('ci-report/') != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: spooled-baseline-report
+        path: ci-report/
+        retention-days: 30
+        if-no-files-found: ignore
