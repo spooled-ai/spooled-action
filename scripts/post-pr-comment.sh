@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Idempotent PR comment posting for Spooled AI Baseline Check.
+# Idempotent PR comment posting for Spooled.
 # Searches for an existing comment with the marker, updates it if found,
 # otherwise creates a new one. Prevents comment spam on repeated pushes.
 
 set -euo pipefail
 
-MARKER="<!-- spooled-baseline-check -->"
+MARKER="<!-- spooled-pr-comment -->"
 REPORT_FILE="ci-report/report.md"
 
 if [ ! -f "$REPORT_FILE" ]; then
