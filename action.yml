@@ -111,6 +111,7 @@ runs:
       env:
         SPOOLED_LOCAL_STORAGE: 'true'
         SPOOLED_BACKEND_URL: ''
+        SPOOLED_API_KEY: ${{ inputs.license-key }}
       run: |
         # License key gating: community mode without a key
         if [ -z "${{ inputs.license-key }}" ]; then
@@ -200,10 +201,10 @@ runs:
         # Link to the artifact (run page, artifacts section)
         ARTIFACT_URL="${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}"
 
-        BODY="${MARKER}
-**Spooled:** ${TOTAL} agents checked | ${CHANGES} behavioral change(s) detected | [View full report](${ARTIFACT_URL})
-
-_Upgrade to Pro for detailed diffs and merge blocking: [spooled.ai/#pricing](https://spooled.ai/#pricing)_"
+        BODY=$(printf '%s\n%s\n\n%s\n' \
+          "${MARKER}" \
+          "**Spooled:** ${TOTAL} agents checked | ${CHANGES} behavioral change(s) detected | [View full report](${ARTIFACT_URL})" \
+          "_Upgrade to Pro for detailed diffs and merge blocking: [spooled.ai/#pricing](https://spooled.ai/#pricing)_")
 
         # Find existing comment with our marker
         EXISTING_COMMENT_ID=$(gh api \
