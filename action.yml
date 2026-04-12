@@ -53,6 +53,22 @@ inputs:
     description: 'spooled-ai version to install from PyPI (e.g. "0.3.0"). Leave empty to install latest.'
     required: false
     default: ''
+  fetch-from-backend:
+    description: 'Fetch traces from Spooled backend instead of running test-command (Pro, Pattern 4)'
+    required: false
+    default: 'false'
+  agent-id:
+    description: 'Agent ID for fetch-from-backend (required when fetch-from-backend is true)'
+    required: false
+    default: ''
+  since:
+    description: 'Time window for fetch-from-backend (e.g., "24h", "7d")'
+    required: false
+    default: '24h'
+  commit-sha:
+    description: 'Git commit SHA to filter fetched traces (optional)'
+    required: false
+    default: ''
 
 outputs:
   result:
@@ -90,21 +106,33 @@ runs:
       shell: bash
       run: |
         if [ -n "${{ inputs.spooled-version }}" ]; then
-          # Explicit PyPI version requested
           pip install "spooled-ai==${{ inputs.spooled-version }}"
-        elif [ -f "${{ github.action_path }}/../pyproject.toml" ]; then
-          # Running from checked-out source (local dev or self-hosted action)
-          pip install -e "${{ github.action_path }}/.."
         else
-          # Latest PyPI release
           pip install spooled-ai
         fi
         if [ -n "${{ inputs.extra-deps }}" ] && [ -f "${{ inputs.extra-deps }}" ]; then
           pip install -r "${{ inputs.extra-deps }}"
         fi
 
+    - name: Fetch traces from backend (Pattern 4)
+      if: inputs.fetch-from-backend == 'true'
+      shell: bash
+      env:
+        SPOOLED_API_KEY: ${{ inputs.license-key }}
+      run: |
+        COMMIT_SHA_FLAG=""
+        if [ -n "${{ inputs.commit-sha }}" ]; then
+          COMMIT_SHA_FLAG="--commit-sha ${{ inputs.commit-sha }}"
+        fi
+
+        spooled ci fetch-traces \
+          --agent-id "${{ inputs.agent-id }}" \
+          --since "${{ inputs.since }}" \
+          --out-dir "${{ inputs.trace-dir }}" \
+          $COMMIT_SHA_FLAG
+
     - name: Generate traces
-      if: inputs.test-command != ''
+      if: inputs.test-command != '' && inputs.fetch-from-backend != 'true'
       shell: bash
       env:
         SPOOLED_LOCAL_STORAGE: 'true'
