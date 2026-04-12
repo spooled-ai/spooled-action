@@ -61,15 +61,20 @@ That's it. The action will:
 
 ## Free vs Pro
 
-| | Free (Community) | Pro |
+| Feature | Free | Pro ($99/mo) |
 |---|---|---|
-| Install + run | ✅ | ✅ |
-| PR comments | summary | full diff |
-| GitHub annotations | — | ✅ |
-| Merge blocking | — | ✅ |
-| Hosted dashboard links | — | ✅ |
+| Action install + run | ✅ | ✅ |
+| Full PR comment with diff | ✅ | ✅ |
+| GitHub annotations | ✅ | ✅ |
+| Merge blocking on policy violations | ✅ | ✅ |
+| Local trace generation in CI (Pattern 1) | ✅ | ✅ |
+| **Pattern 4** — fetch production traces from backend (no LLM calls in CI) | — | ✅ |
+| Backend trace ingest from staging/production | — | ✅ |
+| Hosted dashboard at app.spooled.ai | — | ✅ |
+| Slack/webhook drift alerts | — | ✅ |
+| 90-day history retention | — | ✅ |
 
-Get a Pro license at [spooled.ai](https://spooled.ai).
+**Free is fully featured for local-and-CI workflows.** The Pro upgrade unlocks production-trace-based comparison so you don't have to run LLMs in CI at all. Get a Pro license at [spooled.ai/pricing](https://spooled.ai/#pricing).
 
 ## How it works
 
