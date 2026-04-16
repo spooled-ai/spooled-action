@@ -34,7 +34,7 @@ That's it. The action will:
 
 | Input | Required | Default | Description |
 |---|---|---|---|
-| `baselines` | yes | `.github/baselines` | Path to baseline directory or file |
+| `baselines` | no | `.github/baselines` | Path to baseline directory or file |
 | `test-command` | no | — | Command to generate traces (skip if traces exist) |
 | `trace-dir` | no | `.spooled/traces` | Where to find traces |
 | `policy` | no | — | Path to a `spooled-policy.yml` file |
@@ -42,7 +42,11 @@ That's it. The action will:
 | `license-key` | no | — | Spooled Pro license key. Without one, runs in community mode. |
 | `post-comment` | no | `true` | Post or update a PR comment |
 | `push-report` | no | `false` | Push CI report to your Spooled backend |
-| `spooled-version` | no | — | Pin a specific `spooled-ai` version (e.g. `0.3.0`) |
+| `fetch-from-backend` | no | `false` | **Pro — Pattern 4.** Fetch production traces from backend instead of running tests in CI. Skips `test-command`. |
+| `agent-id` | no | — | Agent ID to fetch traces for (used with `fetch-from-backend`) |
+| `since` | no | `24h` | Time window for fetching traces — duration (`24h`, `7d`) or ISO timestamp |
+| `commit-sha` | no | — | Filter fetched traces by git commit SHA prefix |
+| `spooled-version` | no | — | Pin a specific `spooled-ai` version (e.g. `0.3.1`) |
 | `setup-python` | no | `true` | Set up Python (disable if already configured) |
 | `python-version` | no | `3.10` | Python version to install |
 | `extra-deps` | no | — | Path to extra `requirements.txt` |
