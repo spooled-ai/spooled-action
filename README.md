@@ -82,11 +82,11 @@ That's it. The action will:
 
 ## How it works
 
-Spooled records each tool call, LLM call, and HTTP request your agent makes. It hashes the structural shape of the run (tool sequences, decision counts, output schemas — never content) into a behavioral fingerprint.
+Spooled records each tool call, LLM call, and HTTP request your agent makes. It hashes the structural shape of the run (tool sequences, decision counts, output schemas) into a behavioral fingerprint.
 
 On every PR, this action compares the new fingerprints against your committed baselines. If your agent's behavior changed — different tools, different sequences, different latency, different error patterns — you'll see it as a diff in the PR comment.
 
-Content (prompts, responses, tool arguments) never leaves your infrastructure. The fingerprint is purely structural.
+Content (prompts, responses, tool arguments) is stripped at the SDK level before storage or transmission. The fingerprint is purely structural. See the [privacy architecture](https://spooled.ai/docs/concepts/privacy-architecture) for details.
 
 ## Documentation
 
