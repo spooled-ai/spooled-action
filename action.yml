@@ -49,7 +49,7 @@ inputs:
     required: false
     default: 'false'
   spooled-version:
-    description: 'spooled-ai version to install from PyPI (e.g. "0.3.0"). Leave empty to install latest.'
+    description: 'spooled-ai version to install from PyPI (e.g. "0.4.4"). Leave empty to install latest.'
     required: false
     default: ''
   fetch-from-backend:

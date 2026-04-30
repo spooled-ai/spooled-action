@@ -16,7 +16,7 @@ We aim to acknowledge reports within 48 hours and provide a resolution timeline 
 
 ## Scope
 
-This policy covers the Spooled GitHub Action (`spooled-ai/action`) only. For vulnerabilities in the SDK (`spooled-ai` on PyPI), please email the same address.
+This policy covers the Spooled GitHub Action (`spooled-ai/spooled-action`) only. For vulnerabilities in the SDK (`spooled-ai` on PyPI), please email the same address.
 
 ## Out of Scope
 
