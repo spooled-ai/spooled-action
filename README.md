@@ -1,6 +1,6 @@
 # Spooled — Behavioral CI for AI Agents
 
-[![Marketplace](https://img.shields.io/badge/marketplace-spooled-purple)](https://github.com/marketplace/actions/spooled-behavioral-ci-for-ai-agents)
+[![PyPI](https://img.shields.io/pypi/v/spooled-ai)](https://pypi.org/project/spooled-ai/)
 
 Catch behavioral drift in AI agents on every pull request. Fingerprint, diff, and gate against golden baselines.
 
@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: spooled-ai/action@v1
+      - uses: spooled-ai/spooled-action@v1
         with:
           baselines: .github/baselines
           test-command: pytest tests/agents/
@@ -28,7 +28,7 @@ That's it. The action will:
 2. Run your test command (which generates `.spooled/traces/*.jsonl`)
 3. Compare each trace against the baseline using behavioral fingerprinting
 4. Post a PR comment with the results
-5. Fail the check if a policy violation is detected (Pro)
+5. Fail the check if a policy violation is detected
 
 ## Inputs
 
@@ -38,7 +38,7 @@ That's it. The action will:
 | `test-command` | no | — | Command to generate traces (skip if traces exist) |
 | `trace-dir` | no | `.spooled/traces` | Where to find traces |
 | `policy` | no | — | Path to a `spooled-policy.yml` file |
-| `blocking` | no | `true` | Fail the check on policy violations (Pro) |
+| `blocking` | no | `true` | Fail the check on policy violations |
 | `license-key` | no | — | Spooled Pro license key. Without one, runs in community mode. |
 | `post-comment` | no | `true` | Post or update a PR comment |
 | `push-report` | no | `false` | Push CI report to your Spooled backend |
@@ -46,7 +46,7 @@ That's it. The action will:
 | `agent-id` | no | — | Agent ID to fetch traces for (used with `fetch-from-backend`) |
 | `since` | no | `24h` | Time window for fetching traces — duration (`24h`, `7d`) or ISO timestamp |
 | `commit-sha` | no | — | Filter fetched traces by git commit SHA prefix |
-| `spooled-version` | no | — | Pin a specific `spooled-ai` version (e.g. `0.3.1`) |
+| `spooled-version` | no | — | Pin a specific `spooled-ai` version (e.g. `0.4.4`) |
 | `setup-python` | no | `true` | Set up Python (disable if already configured) |
 | `python-version` | no | `3.10` | Python version to install |
 | `extra-deps` | no | — | Path to extra `requirements.txt` |
