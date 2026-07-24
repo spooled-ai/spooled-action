@@ -121,26 +121,44 @@ runs:
         SPOOLED_ACTION_PATH: ${{ github.action_path }}
       run: bash "${{ github.action_path }}/scripts/install-spooled.sh"
 
+    - name: Validate Action configuration
+      id: validate
+      shell: bash
+      env:
+        SPOOLED_POLICY_INPUT: ${{ inputs.policy }}
+      run: |
+        if [ -n "$SPOOLED_POLICY_INPUT" ] && [ ! -f "$SPOOLED_POLICY_INPUT" ]; then
+          echo "exit_code=2" >> "$GITHUB_OUTPUT"
+          echo "::error::Configured Spooled policy file not found: $SPOOLED_POLICY_INPUT"
+        else
+          echo "exit_code=0" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Fetch traces from backend (Pattern 4)
-      if: inputs.fetch-from-backend == 'true'
+      if: inputs.fetch-from-backend == 'true' && steps.validate.outputs.exit_code == '0'
       shell: bash
       env:
         SPOOLED_API_KEY: ${{ inputs.license-key }}
+        SPOOLED_AGENT_ID_INPUT: ${{ inputs.agent-id }}
+        SPOOLED_SINCE_INPUT: ${{ inputs.since }}
+        SPOOLED_TRACE_DIR_INPUT: ${{ inputs.trace-dir }}
+        SPOOLED_COMMIT_SHA_INPUT: ${{ inputs.commit-sha }}
       run: |
-        COMMIT_SHA_FLAG=""
-        if [ -n "${{ inputs.commit-sha }}" ]; then
-          COMMIT_SHA_FLAG="--commit-sha ${{ inputs.commit-sha }}"
+        fetch_args=(
+          spooled ci fetch-traces
+          --agent-id "$SPOOLED_AGENT_ID_INPUT"
+          --since "$SPOOLED_SINCE_INPUT"
+          --out-dir "$SPOOLED_TRACE_DIR_INPUT"
+        )
+        if [ -n "$SPOOLED_COMMIT_SHA_INPUT" ]; then
+          fetch_args+=(--commit-sha "$SPOOLED_COMMIT_SHA_INPUT")
         fi
 
-        spooled ci fetch-traces \
-          --agent-id "${{ inputs.agent-id }}" \
-          --since "${{ inputs.since }}" \
-          --out-dir "${{ inputs.trace-dir }}" \
-          $COMMIT_SHA_FLAG
+        "${fetch_args[@]}"
 
     - name: Generate traces
       id: generate
-      if: inputs.test-command != '' && inputs.fetch-from-backend != 'true'
+      if: inputs.test-command != '' && inputs.fetch-from-backend != 'true' && steps.validate.outputs.exit_code == '0'
       shell: bash
       env:
         SPOOLED_LOCAL_STORAGE: 'true'
@@ -167,38 +185,46 @@ runs:
         SPOOLED_LOCAL_STORAGE: 'true'
         SPOOLED_BACKEND_URL: ''
         SPOOLED_API_KEY: ${{ inputs.license-key }}
+        SPOOLED_BASELINES_INPUT: ${{ inputs.baselines }}
+        SPOOLED_TRACE_DIR_INPUT: ${{ inputs.trace-dir }}
+        SPOOLED_POLICY_INPUT: ${{ inputs.policy }}
+        SPOOLED_BLOCKING_INPUT: ${{ inputs.blocking }}
+        SPOOLED_PUSH_REPORT_INPUT: ${{ inputs.push-report }}
+        SPOOLED_CONFIG_EXIT: ${{ steps.validate.outputs.exit_code }}
       run: |
         # All comparison features (blocking, annotations, full PR comment) are
         # available on Free. Pro is only required for backend trace ingest and
         # the --push flag (handled at the CLI layer).
-        if [ "${{ inputs.blocking }}" == "true" ]; then
-          BLOCKING_FLAG="--enable-blocking"
+        compare_args=(
+          spooled ci batch-compare
+          --trace-dir "$SPOOLED_TRACE_DIR_INPUT"
+          --baseline "$SPOOLED_BASELINES_INPUT"
+          --out ci-report
+          --github-annotations
+        )
+
+        if [ "$SPOOLED_BLOCKING_INPUT" == "true" ]; then
+          compare_args+=(--enable-blocking)
         else
-          BLOCKING_FLAG="--no-blocking"
-        fi
-        ANNOTATIONS_FLAG="--github-annotations"
-
-        POLICY_FLAG=""
-        if [ -n "${{ inputs.policy }}" ] && [ -f "${{ inputs.policy }}" ]; then
-          POLICY_FLAG="--policy ${{ inputs.policy }}"
+          compare_args+=(--no-blocking)
         fi
 
-        PUSH_FLAG=""
-        if [ "${{ inputs.push-report }}" == "true" ]; then
-          PUSH_FLAG="--push"
+        if [ -n "$SPOOLED_POLICY_INPUT" ]; then
+          compare_args+=(--policy "$SPOOLED_POLICY_INPUT")
         fi
 
-        set +e
-        spooled ci batch-compare \
-          --trace-dir "${{ inputs.trace-dir }}" \
-          --baseline "${{ inputs.baselines }}" \
-          --out ci-report \
-          $ANNOTATIONS_FLAG \
-          $BLOCKING_FLAG \
-          $POLICY_FLAG \
-          $PUSH_FLAG
-        CLI_EXIT=$?
-        set -e
+        if [ "$SPOOLED_PUSH_REPORT_INPUT" == "true" ]; then
+          compare_args+=(--push)
+        fi
+
+        if [ "$SPOOLED_CONFIG_EXIT" -ne 0 ]; then
+          CLI_EXIT="$SPOOLED_CONFIG_EXIT"
+        else
+          set +e
+          "${compare_args[@]}"
+          CLI_EXIT=$?
+          set -e
+        fi
 
         echo "exit_code=$CLI_EXIT" >> "$GITHUB_OUTPUT"
 
@@ -221,7 +247,44 @@ runs:
                 f.write(f\"summary_path=ci-report/summary.json\n\")
         "
         else
+          mkdir -p ci-report
+          python3 -c "
+        import json
+        from pathlib import Path
+        exit_code = int('${CLI_EXIT}')
+        summary = {
+            'overall_result': 'FAIL',
+            'total_traces': 0,
+            'discovered_traces': 0,
+            'analyzed_traces': 0,
+            'unanalyzed_traces': 0,
+            'analysis_failures': 1,
+            'passed': 0,
+            'new_behavior': 0,
+            'no_baseline': 0,
+            'policy_failures': 0,
+            'blocking_decisions': 1,
+            'failure_reason': (
+                'Configured policy file is missing'
+                if exit_code == 2
+                else 'Behavioral comparison did not produce a complete report'
+            ),
+            'traces': [],
+        }
+        Path('ci-report/summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+        Path('ci-report/report.md').write_text(
+            '## ❌ Spooled Behavioral CI: **FAIL**\n\n'
+            + summary['failure_reason']
+            + '. Review the Action log, correct the configuration, and rerun.\n'
+        )
+        "
           echo "result=FAIL" >> "$GITHUB_OUTPUT"
+          echo "total=0" >> "$GITHUB_OUTPUT"
+          echo "passed=0" >> "$GITHUB_OUTPUT"
+          echo "new_behavior=0" >> "$GITHUB_OUTPUT"
+          echo "policy_failures=0" >> "$GITHUB_OUTPUT"
+          echo "report_path=ci-report/report.md" >> "$GITHUB_OUTPUT"
+          echo "summary_path=ci-report/summary.json" >> "$GITHUB_OUTPUT"
         fi
 
         # Keep the composite action alive long enough to post the report and
@@ -258,6 +321,13 @@ runs:
       run: |
         TEST_EXIT="${{ steps.generate.outputs.exit_code }}"
         COMPARE_EXIT="${{ steps.compare.outputs.exit_code }}"
+        CONFIG_EXIT="${{ steps.validate.outputs.exit_code }}"
+
+        if [ -n "$CONFIG_EXIT" ] && [ "$CONFIG_EXIT" -ne 0 ]; then
+          echo "result=FAIL" >> "$GITHUB_OUTPUT"
+          echo "::error::Spooled Action configuration is invalid"
+          exit "$CONFIG_EXIT"
+        fi
 
         if [ -n "$TEST_EXIT" ] && [ "$TEST_EXIT" -ne 0 ]; then
           echo "result=FAIL" >> "$GITHUB_OUTPUT"

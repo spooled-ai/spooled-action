@@ -66,6 +66,41 @@ class ActionContractTests(unittest.TestCase):
         )
         self.assertNotIn("${{ inputs.spooled-source }}", install["run"])
 
+    def test_missing_configured_policy_fails_closed_without_shell_interpolation(self) -> None:
+        action = yaml.safe_load((REPO_ROOT / "action.yml").read_text())
+        steps = action["runs"]["steps"]
+        validate = next(step for step in steps if step["name"] == "Validate Action configuration")
+        compare = next(step for step in steps if step["name"] == "Compare traces against baselines")
+        enforce = next(step for step in steps if step["name"] == "Enforce Spooled gate")
+
+        self.assertEqual(
+            validate["env"]["SPOOLED_POLICY_INPUT"],
+            "${{ inputs.policy }}",
+        )
+        self.assertIn("policy file not found", validate["run"].lower())
+        self.assertNotIn("${{ inputs.policy }}", validate["run"])
+        self.assertNotIn("${{ inputs.policy }}", compare["run"])
+        self.assertIn("Configured policy file is missing", compare["run"])
+        self.assertIn("CONFIG_EXIT", enforce["run"])
+
+    def test_backend_fetch_inputs_are_not_interpolated_into_shell(self) -> None:
+        action = yaml.safe_load((REPO_ROOT / "action.yml").read_text())
+        fetch = next(
+            step
+            for step in action["runs"]["steps"]
+            if step["name"] == "Fetch traces from backend (Pattern 4)"
+        )
+
+        for input_name, environment_name in {
+            "agent-id": "SPOOLED_AGENT_ID_INPUT",
+            "since": "SPOOLED_SINCE_INPUT",
+            "trace-dir": "SPOOLED_TRACE_DIR_INPUT",
+            "commit-sha": "SPOOLED_COMMIT_SHA_INPUT",
+        }.items():
+            self.assertEqual(fetch["env"][environment_name], f"${{{{ inputs.{input_name} }}}}")
+            self.assertNotIn(f"${{{{ inputs.{input_name} }}}}", fetch["run"])
+        self.assertIn('"${fetch_args[@]}"', fetch["run"])
+
     def test_exact_unreleased_source_is_one_requirement(self) -> None:
         source = "https://github.com/spooled-ai/spooled/archive/" + ("a" * 40) + ".tar.gz"
 

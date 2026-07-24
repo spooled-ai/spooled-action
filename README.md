@@ -37,7 +37,7 @@ That's it. The action will:
 | `baselines` | no | `.github/baselines` | Path to baseline directory or file |
 | `test-command` | no | — | Command to generate traces (skip if traces exist) |
 | `trace-dir` | no | `.spooled/traces` | Where to find traces |
-| `policy` | no | — | Path to a `spooled-policy.yml` file |
+| `policy` | no | — | Path to a `spooled-policy.yml` file. A configured path that does not exist fails the check. |
 | `blocking` | no | `true` | Fail on incomplete analysis or a blocking behavioral decision |
 | `license-key` | no | — | Spooled Pro license key. Without one, runs in community mode. |
 | `post-comment` | no | `true` | Post or update a PR comment |
