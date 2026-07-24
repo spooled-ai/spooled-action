@@ -53,6 +53,10 @@ inputs:
     description: 'spooled-ai version to install from PyPI. Leave empty to install latest.'
     required: false
     default: ''
+  spooled-source:
+    description: 'Exact spooled-ai source URL or local path to install. Use this to test an unreleased commit; mutually exclusive with spooled-version.'
+    required: false
+    default: ''
   fetch-from-backend:
     description: 'Fetch traces from Spooled backend instead of running test-command (Pro, Pattern 4)'
     required: false
@@ -110,20 +114,12 @@ runs:
 
     - name: Install Spooled
       shell: bash
-      run: |
-        if [ -n "${{ inputs.spooled-version }}" ]; then
-          # Explicit PyPI version requested
-          pip install "spooled-ai==${{ inputs.spooled-version }}"
-        elif [ -f "${{ github.action_path }}/../pyproject.toml" ]; then
-          # Running from checked-out source (local dev or self-hosted action)
-          pip install -e "${{ github.action_path }}/.."
-        else
-          # Latest PyPI release
-          pip install spooled-ai
-        fi
-        if [ -n "${{ inputs.extra-deps }}" ] && [ -f "${{ inputs.extra-deps }}" ]; then
-          pip install -r "${{ inputs.extra-deps }}"
-        fi
+      env:
+        SPOOLED_SOURCE_INPUT: ${{ inputs.spooled-source }}
+        SPOOLED_VERSION_INPUT: ${{ inputs.spooled-version }}
+        SPOOLED_EXTRA_DEPS_INPUT: ${{ inputs.extra-deps }}
+        SPOOLED_ACTION_PATH: ${{ github.action_path }}
+      run: bash "${{ github.action_path }}/scripts/install-spooled.sh"
 
     - name: Fetch traces from backend (Pattern 4)
       if: inputs.fetch-from-backend == 'true'

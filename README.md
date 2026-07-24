@@ -24,7 +24,7 @@ jobs:
 
 That's it. The action will:
 
-1. Install `spooled-ai` from PyPI
+1. Install `spooled-ai` from PyPI (or an exact candidate source you pin)
 2. Run your test command (which generates `.spooled/traces/*.jsonl`)
 3. Compare each trace against the baseline using behavioral fingerprinting
 4. Post a PR comment with the results
@@ -38,7 +38,7 @@ That's it. The action will:
 | `test-command` | no | — | Command to generate traces (skip if traces exist) |
 | `trace-dir` | no | `.spooled/traces` | Where to find traces |
 | `policy` | no | — | Path to a `spooled-policy.yml` file |
-| `blocking` | no | `true` | Fail the check on policy violations |
+| `blocking` | no | `true` | Fail on incomplete analysis or a blocking behavioral decision |
 | `license-key` | no | — | Spooled Pro license key. Without one, runs in community mode. |
 | `post-comment` | no | `true` | Post or update a PR comment |
 | `push-report` | no | `false` | Push CI report to your Spooled backend |
@@ -47,6 +47,7 @@ That's it. The action will:
 | `since` | no | `24h` | Time window for fetching traces — duration (`24h`, `7d`) or ISO timestamp |
 | `commit-sha` | no | — | Filter fetched traces by git commit SHA prefix |
 | `spooled-version` | no | — | Pin a specific `spooled-ai` version (e.g. `0.4.4`) |
+| `spooled-source` | no | — | Install an exact SDK URL/path for prerelease testing; mutually exclusive with `spooled-version` |
 | `setup-python` | no | `true` | Set up Python (disable if already configured) |
 | `python-version` | no | `3.10` | Python version to install |
 | `extra-deps` | no | — | Path to extra `requirements.txt` |
@@ -82,11 +83,11 @@ That's it. The action will:
 
 ## How it works
 
-Spooled records each tool call, LLM call, and HTTP request your agent makes. It hashes the structural shape of the run (tool sequences, decision counts, output schemas) into a behavioral fingerprint.
+Spooled records each tool call, LLM call, and HTTP request your agent makes. It hashes the structural shape of the run (tool sequences, decision counts, and output schemas) into a behavioral fingerprint.
 
-On every PR, this action compares the new fingerprints against your committed baselines. If your agent's behavior changed — different tools, different sequences, different latency, different error patterns — you'll see it as a diff in the PR comment.
+On every PR, this action compares new fingerprints against committed baselines. By default it blocks unbaselined or unanalyzable traces, previously unseen consequential tools, and removal of always-observed tools or tool-schema keys. Use a versioned policy to gate exact tool scope, required action ordering, output contracts, or model changes.
 
-Content (prompts, responses, tool arguments) is stripped at the SDK level before storage or transmission. The fingerprint is purely structural. See the [privacy architecture](https://spooled.ai/docs/concepts/privacy-architecture) for details.
+Prompt, response, and tool-argument values are stripped at the SDK boundary. Only structural metadata—and configured argument key names—can contribute to a fingerprint. See the [privacy architecture](https://spooled.ai/docs/concepts/privacy-architecture) for details.
 
 ## Documentation
 

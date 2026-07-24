@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  action-contract:
+    name: Action contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install test dependency
+        run: pip install PyYAML==6.0.3
+
+      - name: Validate shell syntax
+        run: bash -n scripts/install-spooled.sh scripts/post-pr-comment.sh
+
+      - name: Prove Action installation contract
+        run: python -m unittest discover -s tests -v
