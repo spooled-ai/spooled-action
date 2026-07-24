@@ -11,6 +11,7 @@ inputs:
     default: ''
   baselines:
     description: 'Path to baseline directory or file'
+    required: false
     default: '.github/baselines'
   test-command:
     description: 'Command to generate traces (leave empty if traces already exist)'
@@ -25,7 +26,7 @@ inputs:
     required: false
     default: ''
   blocking:
-    description: 'Fail the check on policy violations'
+    description: 'Fail the check on incomplete or blocking behavioral decisions'
     required: false
     default: 'true'
   setup-python:
@@ -49,7 +50,7 @@ inputs:
     required: false
     default: 'false'
   spooled-version:
-    description: 'spooled-ai version to install from PyPI (e.g. "0.4.4"). Leave empty to install latest.'
+    description: 'spooled-ai version to install from PyPI. Leave empty to install latest.'
     required: false
     default: ''
   fetch-from-backend:
@@ -72,7 +73,7 @@ inputs:
 outputs:
   result:
     description: 'PASS or FAIL'
-    value: ${{ steps.compare.outputs.result }}
+    value: ${{ steps.enforce.outputs.result }}
   total:
     description: 'Total traces analyzed'
     value: ${{ steps.compare.outputs.total }}
@@ -91,13 +92,19 @@ outputs:
   summary-path:
     description: 'Path to generated summary.json'
     value: ${{ steps.compare.outputs.summary_path }}
+  test-exit-code:
+    description: 'Exit code from test-command (empty when no test command ran)'
+    value: ${{ steps.generate.outputs.exit_code }}
+  compare-exit-code:
+    description: 'Exit code from the behavioral comparison'
+    value: ${{ steps.compare.outputs.exit_code }}
 
 runs:
   using: 'composite'
   steps:
     - name: Set up Python
       if: inputs.setup-python == 'true'
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ inputs.python-version }}
 
@@ -105,8 +112,13 @@ runs:
       shell: bash
       run: |
         if [ -n "${{ inputs.spooled-version }}" ]; then
+          # Explicit PyPI version requested
           pip install "spooled-ai==${{ inputs.spooled-version }}"
+        elif [ -f "${{ github.action_path }}/../pyproject.toml" ]; then
+          # Running from checked-out source (local dev or self-hosted action)
+          pip install -e "${{ github.action_path }}/.."
         else
+          # Latest PyPI release
           pip install spooled-ai
         fi
         if [ -n "${{ inputs.extra-deps }}" ] && [ -f "${{ inputs.extra-deps }}" ]; then
@@ -131,11 +143,26 @@ runs:
           $COMMIT_SHA_FLAG
 
     - name: Generate traces
+      id: generate
       if: inputs.test-command != '' && inputs.fetch-from-backend != 'true'
       shell: bash
       env:
         SPOOLED_LOCAL_STORAGE: 'true'
-      run: ${{ inputs.test-command }}
+        SPOOLED_TEST_COMMAND: ${{ inputs.test-command }}
+      run: |
+        # Preserve the test result while still producing the behavioral report.
+        # Passing the command through the environment also preserves multiline
+        # commands without interpolating them into this shell program.
+        set +e
+        bash -o pipefail -c "$SPOOLED_TEST_COMMAND"
+        TEST_EXIT=$?
+        set -e
+
+        echo "exit_code=$TEST_EXIT" >> "$GITHUB_OUTPUT"
+        if [ "$TEST_EXIT" -ne 0 ]; then
+          echo "::error::Spooled trace command failed with exit code $TEST_EXIT"
+        fi
+        exit 0
 
     - name: Compare traces against baselines
       id: compare
@@ -177,7 +204,10 @@ runs:
         CLI_EXIT=$?
         set -e
 
-        # Parse summary.json to set outputs
+        echo "exit_code=$CLI_EXIT" >> "$GITHUB_OUTPUT"
+
+        # Parse summary.json to set outputs. A missing summary stays FAIL and
+        # is enforced by the final gate step.
         if [ -f ci-report/summary.json ]; then
           python3 -c "
         import json, os
@@ -194,9 +224,13 @@ runs:
                 f.write(f\"report_path=ci-report/report.md\n\")
                 f.write(f\"summary_path=ci-report/summary.json\n\")
         "
+        else
+          echo "result=FAIL" >> "$GITHUB_OUTPUT"
         fi
 
-        exit $CLI_EXIT
+        # Keep the composite action alive long enough to post the report and
+        # upload artifacts. The final step owns the action's exit status.
+        exit 0
 
     - name: Job summary
       if: always() && hashFiles('ci-report/report.md') != ''
@@ -220,3 +254,31 @@ runs:
         path: ci-report/
         retention-days: 30
         if-no-files-found: ignore
+
+    - name: Enforce Spooled gate
+      id: enforce
+      if: always()
+      shell: bash
+      run: |
+        TEST_EXIT="${{ steps.generate.outputs.exit_code }}"
+        COMPARE_EXIT="${{ steps.compare.outputs.exit_code }}"
+
+        if [ -n "$TEST_EXIT" ] && [ "$TEST_EXIT" -ne 0 ]; then
+          echo "result=FAIL" >> "$GITHUB_OUTPUT"
+          echo "::error::Trace generation failed with exit code $TEST_EXIT"
+          exit "$TEST_EXIT"
+        fi
+
+        if [ -z "$COMPARE_EXIT" ]; then
+          echo "result=FAIL" >> "$GITHUB_OUTPUT"
+          echo "::error::Spooled comparison did not complete"
+          exit 1
+        fi
+
+        if [ "$COMPARE_EXIT" -ne 0 ]; then
+          echo "result=FAIL" >> "$GITHUB_OUTPUT"
+          echo "::error::Spooled blocked this change; review the report above"
+          exit "$COMPARE_EXIT"
+        fi
+
+        echo "result=PASS" >> "$GITHUB_OUTPUT"
